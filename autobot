@@ -1,0 +1,169 @@
+def write_review_paper(user_title, papers):
+    if not papers:
+        return "No papers retrieved."
+
+    # 1. Extract key phrases and clusters
+    key_phrases = extract_key_phrases(papers, top_n=12)
+    clusters, cluster_topics = cluster_papers(papers, n_clusters=5)
+    
+    # 2. Build cluster groups if clustering succeeded
+    if clusters is not None:
+        cluster_groups = defaultdict(list)
+        for idx, label in enumerate(clusters):
+            cluster_groups[label].append(idx)
+        # Sort clusters by size descending
+        sorted_clusters = sorted(cluster_groups.items(), key=lambda x: len(x[1]), reverse=True)
+    else:
+        sorted_clusters = []
+
+    # ----------------------------------------------------------
+    # Build paper sections
+    # ----------------------------------------------------------
+    paper = []
+    paper.append(f"Review Paper: {user_title}")
+    paper.append("=" * len(paper[0]))
+    paper.append("")
+
+    # ---- Abstract ----
+    paper.append("Abstract")
+    paper.append("-" * 20)
+    abstract = []
+    if key_phrases:
+        abstract.append(f"This review synthesizes literature on {user_title}, focusing on key themes such as {', '.join(key_phrases[:5])}.")
+    else:
+        abstract.append(f"This review synthesizes literature on {user_title} from {len(papers)} peer-reviewed articles.")
+    if sorted_clusters:
+        cluster_names = [f"'{' '.join(cluster_topics[label][:2])}'" for label, _ in sorted_clusters[:3]]
+        abstract.append(f"Unsupervised clustering revealed {len(sorted_clusters)} main research directions, including {', '.join(cluster_names)}.")
+    abstract.append("Using a machine‑learning‑assisted approach (key phrase extraction and K‑means clustering), we organize findings thematically and identify under‑explored areas.")
+    paper.append(" ".join(abstract))
+    paper.append("")
+
+    # ---- Introduction ----
+    paper.append("1. Introduction")
+    paper.append("-" * 20)
+    intro = []
+    intro.append(f"The topic of {user_title} has attracted substantial research interest across disciplines. ")
+    intro.append(f"This review synthesizes findings from {len(papers)} peer-reviewed articles retrieved from seven academic databases (OpenAlex, Crossref, PubMed, arXiv, CORE, Europe PMC, Semantic Scholar). ")
+    if sorted_clusters:
+        intro.append(f"By applying K‑means clustering to the abstracts, we identified {len(sorted_clusters)} coherent thematic clusters, each characterized by a distinct set of keywords. ")
+    intro.append("The objectives are to (i) map the current landscape, (ii) highlight methodological trends, and (iii) uncover gaps that could guide future investigations.")
+    paper.append(" ".join(intro))
+    paper.append("")
+
+    # ---- Methods ----
+    paper.append("2. Methods")
+    paper.append("-" * 20)
+    methods = []
+    methods.append("A systematic literature search was performed using the following APIs: OpenAlex, Crossref, PubMed, arXiv, CORE, Europe PMC, and Semantic Scholar. ")
+    methods.append(f"After deduplication, {len(papers)} papers were retained. ")
+    methods.append("The abstracts were vectorized using TF‑IDF and clustered with K‑means (n_clusters determined dynamically). ")
+    methods.append("Key multi‑word phrases were extracted using RAKE (Rapid Automatic Keyword Extraction). ")
+    methods.append("This machine‑learning‑assisted approach allowed for an objective grouping of papers and identification of central themes.")
+    paper.append(" ".join(methods))
+    paper.append("")
+
+    # ---- Results ----
+    paper.append("3. Results")
+    paper.append("-" * 20)
+    if sorted_clusters:
+        for i, (label, indices) in enumerate(sorted_clusters[:5]):
+            # Cluster label: top 5 words joined
+            cluster_words = cluster_topics[label][:5]
+            label_str = f"Cluster {i+1}: " + ", ".join(cluster_words)
+            paper.append(f"### {label_str}")
+            # Summary text
+            summary = get_cluster_summary(indices, papers, cluster_words, max_papers=3)
+            paper.append(summary)
+            # List representative papers
+            cluster_papers = [papers[idx] for idx in indices]
+            cluster_papers.sort(key=lambda x: x.get("cited_by_count", 0), reverse=True)
+            paper.append("**Representative studies:**")
+            for p in cluster_papers[:3]:
+                citation = format_citation(p)
+                snippet = p.get("abstract", "").split('.')[0][:150] if p.get("abstract") else "No abstract"
+                paper.append(f"- {citation}: {snippet}...")
+            paper.append("")
+    else:
+        paper.append("No clear clusters emerged; key findings from individual papers are summarized below:")
+        for p in papers[:10]:
+            paper.append(f"- {format_citation(p)}: {p.get('abstract', 'No abstract')[:200]}...")
+        paper.append("")
+
+    # ---- Discussion ----
+    paper.append("4. Discussion")
+    paper.append("-" * 20)
+    discussion = []
+
+    if sorted_clusters:
+        # Summarise cluster sizes
+        largest_label, largest_indices = sorted_clusters[0]
+        largest_words = cluster_topics[largest_label][:3]
+        discussion.append(f"The largest cluster (size {len(largest_indices)}) revolves around {', '.join(largest_words)}, indicating that these topics dominate current research. ")
+        
+        if len(sorted_clusters) > 1:
+            second_label, second_indices = sorted_clusters[1]
+            second_words = cluster_topics[second_label][:3]
+            discussion.append(f"A second significant cluster focuses on {', '.join(second_words)} (size {len(second_indices)}). ")
+        
+        # Identify gaps
+        gaps = identify_gaps(key_phrases, cluster_topics)
+        if gaps:
+            # Only take first two gaps and format them
+            gap_str = ", ".join(gaps[:2])
+            discussion.append(f"However, topics such as '{gap_str}' appear infrequently in the clusters, suggesting they are under‑represented and may represent emerging areas. ")
+        else:
+            discussion.append("The clustering covers the majority of key phrases, indicating a mature field with well‑defined sub‑domains. ")
+        
+        # Suggest future directions
+        if len(sorted_clusters) >= 2:
+            # Combine terms from two largest clusters to suggest cross‑cutting research
+            cross_terms = list(set(cluster_topics[largest_label][:3] + cluster_topics[sorted_clusters[1][0]][:3]))
+            discussion.append(f"Future research could explore the intersection between these clusters, for instance by investigating how {', '.join(cross_terms[:3])} interact.")
+        else:
+            discussion.append("Future work should aim to diversify the thematic scope by incorporating more varied methodologies and cross‑disciplinary perspectives.")
+    else:
+        discussion.append("The literature is diverse; further systematic reviews are needed to consolidate findings.")
+        discussion.append("Future research should consider larger‑scale meta‑analyses and adopt more standardized reporting to facilitate clustering.")
+    
+    paper.append(" ".join(discussion))
+    paper.append("")
+
+    # ---- Conclusion ----
+    paper.append("5. Conclusion")
+    paper.append("-" * 20)
+    conclusion = []
+    conclusion.append(f"This machine‑learning‑assisted review synthesizes {len(papers)} peer‑reviewed articles on {user_title}. ")
+    if sorted_clusters:
+        largest_label, _ = sorted_clusters[0]
+        largest_words = cluster_topics[largest_label][:3]
+        conclusion.append(f"The {len(sorted_clusters)} identified clusters provide a structured map of the field, with the largest cluster focusing on {', '.join(largest_words)}. ")
+        # Add gap statement only if gaps exist
+        gaps = identify_gaps(key_phrases, cluster_topics)
+        if gaps:
+            conclusion.append(f"Notable gaps include {', '.join(gaps[:2])}, which merit further investigation.")
+    else:
+        conclusion.append("While the literature is diverse, the clustering approach revealed no strong thematic separation, suggesting a fragmented field.")
+    conclusion.append("The methods demonstrated here can be extended to other topics, offering a scalable way to produce evidence‑based overviews.")
+    paper.append(" ".join(conclusion))
+    paper.append("")
+
+    # ---- References ----
+    paper.append("References")
+    paper.append("-" * 20)
+    for i, p in enumerate(papers[:50], 1):
+        if p.get("authors"):
+            author_str = ", ".join(a.split(",")[0] for a in p["authors"][:3])
+            if len(p["authors"]) > 3:
+                author_str += " et al."
+        else:
+            author_str = "Anonymous"
+        year = p.get("year", "n.d.")
+        title = p.get("title", "No title")
+        journal = p.get("journal", "Unknown")
+        ref = f"{i}. {author_str} ({year}). {title}. *{journal}*."
+        if p.get("doi"):
+            ref += f" https://doi.org/{p['doi']}"
+        paper.append(ref)
+
+    return "\n".join(paper)
